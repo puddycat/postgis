@@ -145,12 +145,13 @@ main ()
 
 				export DOCKER_IMAGE_PREFIX="raymondstrose/";
 				export DOCKER_IMAGE_NAME="postgis";
-				export DOCKER_IMAGE_TAG="13.1"
+				export DOCKER_IMAGE_TAG="17-3.5"
 				export CONTAINER_NAME="postgis";
-				export DOCKER_ARCH="amd64";
+				#export DOCKER_ARCH="amd64";
 				export DOCKER_CONTAINER_DETACHED_MODE=true;
-				export DOCKER_CONTAINER_REQUIRES_SSH_CONFIG=true;
-				export DOCKER_CONTAINER_REQUIRES_DOCKER_SOCKET=true;
+				#export DOCKER_CONTAINER_REQUIRES_SSH_CONFIG=true;
+				#export DOCKER_CONTAINER_REQUIRES_DOCKER_SOCKET=true;
+				export DOCKER_CONTAINER_REQUIRES_DOCKER_SOCKET=false;
 				export DOCKER_CONTAINER_CLEANUP=true;
 				export DOCKER_CONTAINER_REQUIRES_STDIN_OPEN=true;
 				export DOCKER_CONTAINER_REQUIRES_PSEUDO_TTY=true;
@@ -204,8 +205,8 @@ main ()
 	docker_mount_opts ()
 	{
 		if [ "$POSTGRES_DATA_VOLUME_NAME" ]; then
-			#echo "--mount source=$POSTGRES_DATA_VOLUME_NAME,destination=/var/lib/postgisql/data";
-			echo "--mount type=volume,source=$POSTGRES_DATA_VOLUME_NAME,target=/var/lib/postgisql/data";
+			#echo "--mount source=$POSTGRES_DATA_VOLUME_NAME,destination=/var/lib/postgis/data";
+			echo "--mount type=volume,source=$POSTGRES_DATA_VOLUME_NAME,target=/var/lib/postgis/data";
 		fi;
 
 		return 0;
@@ -308,13 +309,13 @@ main ()
 		$DOCKER_CONTAINER_REQUIRES_PSEUDO_TTY && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS -t";
 		[ "$CONTAINER_NAME" ] &&  DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --name $CONTAINER_NAME";
 		#$DOCKER_CONTAINER_REQUIRES_DOCKER_SOCKET && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS -v /var/run/docker.sock:/var/run/docker.sock";
-		#DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS -v /custom/mount:/var/lib/postgisql/data";
+		#DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS -v /custom/mount:/var/lib/postgis/data";
 		$DOCKER_CONTAINER_REQUIRES_DOCKER_SOCKET && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock";
 		$DOCKER_CONTAINER_REQUIRES_SSH_CONFIG && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --mount type=bind,source=$HOME/.ssh/id_rsa,target=/home/build/.ssh/id_rsa";
 		$DOCKER_CONTAINER_REQUIRES_SSH_CONFIG && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --mount type=bind,source=$HOME/.ssh/known_hosts,target=/home/build/.ssh/known_hosts";
-		#$DOCKER_CONTAINER_REQUIRES_SSH_CONFIG && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --mount type=volume,source=$POSTGRES_DATA_VOLUME_NAME,target=/var/lib/postgisql/data";
+		#$DOCKER_CONTAINER_REQUIRES_SSH_CONFIG && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --mount type=volume,source=$POSTGRES_DATA_VOLUME_NAME,target=/var/lib/postgis/data";
 		#DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --publish 127.0.0.1:5432:5432";
-		DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --publish 0.0.0.0:5432:5432";
+		DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --publish 0.0.0.0:5433:5432";
 	fi;
 
 	if $BUILD_IMAGE; then
