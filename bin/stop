@@ -1,0 +1,10 @@
+#! /usr/bin/env bash
+#
+# postgis/bin/stop
+#
+# raymondstrose@hotmail.com
+#
+#   Stop a Postgres Docker container.
+#
+
+docker stop postgis; docker rm postgis;

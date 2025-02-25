@@ -1,0 +1,366 @@
+#! /usr/bin/env bash
+#
+# postgis/bin/start
+#
+# raymondstrose@hotmail.com
+#
+#   Start a Postgres Docker container.
+#
+
+append () { sed -e "s?\$?$@?"; }
+prepend () { sed -e "s?^?$@?"; }
+indent () { { if [ $# -ne 0 ]; then echo -e "$@"; else cat; fi; } | prepend "    "; }
+error () { { if [ $# -ne 0 ]; then echo -e "$@"; else cat; fi; } | prepend "$PROGNAME: error: " >&2; }
+warning () { { if [ $# -ne 0 ]; then echo -e "$@"; else cat; fi; } | prepend "$PROGNAME: warning: " >&2; }
+notice () { { if [ $# -ne 0 ]; then echo -e "$@"; else cat; fi; } | prepend "$PROGNAME: notice: " >&2; }
+info () { { if [ $# -ne 0 ]; then echo -e "$@"; else cat; fi; } | prepend "$PROGNAME: info: " >&2; }
+verbose () { $VERBOSE_MODE && { { if [ $# -ne 0 ]; then echo -e "$@"; else cat; fi; } | prepend "$PROGNAME: verbose: " >&2; } }
+debug () { $DEBUG_MODE && { { if [ $# -ne 0 ]; then echo -e "$@"; else cat; fi; } | prepend "$PROGNAME: debug: " >&2; } }
+
+function execute ()
+{
+	declare -a params;
+
+	for param; do
+		if [[ -z "${param}" || "${param}" =~ [^A-Za-z0-9_@%+=:,./-] ]]; then
+			params+=("'${param//\'/\'\"\'\"\'}'");
+		else
+			params+=("${param}");
+		fi;
+	done;
+
+	debug "${params[*]}";
+	eval ${params[*]};
+}
+
+create_docker_volumes ()
+{
+	create_docker_volume ()
+	{
+		DOCKER_VOLUME_NAME="$1";
+		DOCKER_VOLUME_INFO=$(execute docker volume list | awk '{ if($NF == name) print; }' name=$DOCKER_VOLUME_NAME);
+
+		if [ $? -ne 0 ]; then
+			error "Failed to list Docker volume $DOCKER_VOLUME_NAME";
+			return 1;
+		fi;
+
+		if [ "$DOCKER_VOLUME_INFO" ]; then
+			return 0;
+	#		execute docker volume rm $DOCKER_VOLUME_NAME;
+	#
+	#		if [ $? -ne 0 ]; then
+	#			error "Failed to remove Docker volume $DOCKER_VOLUME_NAME";
+	#			return 1;
+	#		fi;
+		fi;
+
+		execute docker volume create $DOCKER_VOLUME_NAME;
+
+		if [ $? -ne 0 ]; then
+			error "Failed to create Docker volume $DOCKER_VOLUME_NAME";
+			return 1;
+		fi;
+
+		return 0;
+	}
+
+	create_docker_volume $POSTGRES_DATA_VOLUME_NAME || return 1;
+
+	return 0;
+}
+
+cleanup ()
+{
+	remove_stale_containers ()
+	{
+		STALE_CONTAINERS=$(docker ps -a | awk '{ if($2 == image) print $1; }' image="$DST_IMAGE");
+
+		if [ ! "$STALE_CONTAINERS" ]; then
+			debug "No stale $DST_IMAGE containers found to remove.";
+			return 0;
+		fi;
+
+		debug "Removing stale $DST_IMAGE containers.";
+		execute docker rm $STALE_CONTAINERS;
+
+		if [ $? -ne 0 ]; then
+			error "Failed to remove the Docker container(s) $STALE_CONTAINERS";
+			return 1;
+		fi;
+
+		return 0;
+	}
+
+	debug "Cleanup:";
+
+	{
+		remove_stale_containers || return 1;
+	} | indent;
+
+	return 0;
+}
+
+main ()
+{
+# Display usage information.
+#
+	usage ()
+	{
+		cat <<-EOF >&2
+			$PROGNAME: usage: $PROGNAME [--help] [--debug] [--verbose] [--noop] [--config-dir {path}] [--image-name {name}] [--image-tag {tag}] [--build-image]
+
+			--build-image               Build the image before starting the container (default: $BUILD_IMAGE)
+			--image-name {name}         Specify the Docker image tag (default: $DOCKER_IMAGE_NAME)
+			--image-tag {tag}           Specify the Docker image tag (default: $DOCKER_IMAGE_TAG)
+			--config-dir {path}         Specify the configuration directory (default: $CONFIG_DIR)
+			--noop                      Don't perform the operation, just report the actions that would be carried out.
+			--verbose                   Enable verbose mode.
+			--debug                     Enable debug mode.
+			--help                      Display this usage information.
+			EOF
+
+		return 0;
+	}
+
+# Create the initial configuration files.
+#
+# Any files already in place should not be overwritten.
+#
+	initialise_configuration ()
+	{
+		[ -d $CONFIG_DIR ] || mkdir -p $CONFIG_DIR;
+
+		if [ ! -f $CONFIG_DIR/settings ]; then
+			cat <<-EOF >$CONFIG_DIR/settings
+				export DEBUG_MODE=false;
+				export VERBOSE_MODE=false;
+				export NOOP_MODE=false;
+				export PRIVILEGED_MODE=false;
+
+				export BUILD_IMAGE=false;
+
+				export MOUNT_HOST_DOCKER=false;
+				export MOUNT_HOST_DOCKER_SOCKET=false;
+
+				export DOCKER_IMAGE_PREFIX="raymondstrose/";
+				export DOCKER_IMAGE_NAME="postgis";
+				export DOCKER_IMAGE_TAG="13.1"
+				export CONTAINER_NAME="postgis";
+				export DOCKER_ARCH="amd64";
+				export DOCKER_CONTAINER_DETACHED_MODE=true;
+				export DOCKER_CONTAINER_REQUIRES_SSH_CONFIG=true;
+				export DOCKER_CONTAINER_REQUIRES_DOCKER_SOCKET=true;
+				export DOCKER_CONTAINER_CLEANUP=true;
+				export DOCKER_CONTAINER_REQUIRES_STDIN_OPEN=true;
+				export DOCKER_CONTAINER_REQUIRES_PSEUDO_TTY=true;
+
+				export POSTGRES_DATA_VOLUME_NAME="postgis-data";
+
+				#export DOCKER_NETWORK="postgis";
+				export DOCKER_NETWORK="bridge";
+				EOF
+		fi;
+
+		return 0;
+	}
+
+# Load configuration files.
+#
+	load_config ()
+	{
+		if [ "$CONFIG_DIR" ]; then
+			if [ -d "$CONFIG_DIR" ]; then
+
+			# Configure the process
+			#
+				notice "Loading configuration.";
+				for filename in $CONFIG_DIR/*; do
+					indent "$filename" | debug;
+					[ -f "$filename" ] && { source "$filename" || return 1; }
+				done;
+			fi;
+		fi;
+
+		return 0;
+	}
+
+	docker_network_opts ()
+	{
+		if [ "$DOCKER_NETWORK" ]; then
+			echo "--net=$DOCKER_NETWORK";
+		fi;
+
+		return 0;
+	}
+
+	restart_opts ()
+	{
+		#echo "--rm";
+		echo "--restart=always";
+		return 0;
+	}
+
+	docker_mount_opts ()
+	{
+		if [ "$POSTGRES_DATA_VOLUME_NAME" ]; then
+			#echo "--mount source=$POSTGRES_DATA_VOLUME_NAME,destination=/var/lib/postgisql/data";
+			echo "--mount type=volume,source=$POSTGRES_DATA_VOLUME_NAME,target=/var/lib/postgisql/data";
+		fi;
+
+		return 0;
+	}
+
+	postgis_opts ()
+	{
+	# Pass the Postgres POSTGRES_PASSWORD setting from the environment.
+	#
+	# See: https://docs.docker.com/engine/reference/run/#env-environment-variables
+	#
+		if [ ! "$POSTGRES_PASSWORD" ]; then
+			error "POSTGRES_PASSWORD environment variable not set.";
+			return 1;
+		fi;
+
+		[ "$POSTGRES_PASSWORD" ] && echo "--env POSTGRES_PASSWORD=$POSTGRES_PASSWORD";
+		return 0;
+	}
+
+	export PROGNAME=`basename "$0"`;
+	export PROGDIR=`dirname "$0"`;
+	export INSTALL_DIR=`dirname "$PROGDIR"`;
+	export CONFIG_DIR="$INSTALL_DIR/etc/$PROGNAME";
+	export LIB_DIR="$INSTALL_DIR/lib/$PROGNAME";
+	export WORK_DIR="$INSTALL_DIR/var/$PROGNAME";
+
+# NOTE: This returns "aarch64" on Ubuntu. But, "arm64" on macOS.
+	TARGET_ARCH="$(uname -m)";
+
+	case "$TARGET_ARCH" in
+	aarch64)	TARGET_ARCH="arm64";
+				DOCKER_ARCH="arm64";;
+	x86_64)		DOCKER_ARCH="amd64";;
+	arm64)		DOCKER_ARCH="arm64";;
+	esac;
+
+# Create the initial configuration files.
+	initialise_configuration || return $?;
+
+# Load the default configuration files.
+	load_config || return $?;
+
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--build-image)		BUILD_IMAGE=true;;
+		--image-tag|--image-tag=?*)
+			case "$1" in
+			--image-tag)	DOCKER_IMAGE_TAG="$2"; shift;;
+			--image-tag=?*)	DOCKER_IMAGE_TAG="${1#--image-tag=}";;
+			esac;;
+		--image-name|--image-name=?*)
+			case "$1" in
+			--image-name)		DOCKER_IMAGE_NAME="$2"; shift;;
+			--image-name=?*)	DOCKER_IMAGE_NAME="${1#--image-name=}";;
+			esac;;
+		--config-dir|--config-dir=?*)
+			case "$1" in
+			--config-dir)		CONFIG_DIR="$2"; shift;;
+			--config-dir=?*)	CONFIG_DIR="${1#--config-dir=}";;
+			esac;
+
+		# Create the initial configuration files.
+			initialise_configuration || return $?;
+
+		# Load the specified configuration files.
+			load_config || return $?;;
+		--debug)	$DEBUG_MODE && set -x; DEBUG_MODE=true;;
+		--noop)		NOOP_MODE=true;;
+		--verbose)	VERBOSE_MODE=true;;
+		--help) usage; return 2;;
+		--) shift; break;;
+		-*)	error "unknown option \"$1\""; usage; return 1;;
+		*)	error "unrecognised command line argument \"$1\""; usage; return 1;;
+		esac;
+
+		shift;
+	done;
+
+	[ ! "$DST_IMAGE" ] && DST_IMAGE="$DOCKER_IMAGE_PREFIX$DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG";
+
+	if [ ! "$DST_IMAGE_ARGS" ]; then
+		DST_IMAGE_ARGS="";
+		#$VERBOSE_MODE && DST_IMAGE_ARGS="$DST_IMAGE_ARGS --verbose";
+		#$DEBUG_MODE && DST_IMAGE_ARGS="$DST_IMAGE_ARGS --debug";
+	fi;
+
+	execute create_docker_volumes;
+
+	if [ $? -ne 0 ]; then
+		error "Failed to create Docker volumes";
+		return 1;
+	fi;
+
+	if [ ! "$DOCKER_RUN_ARGS" ]; then
+		DOCKER_RUN_ARGS="";
+		$DOCKER_CONTAINER_DETACHED_MODE && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --detach";
+		$PRIVILEGED_MODE && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --privileged";
+		$DOCKER_CONTAINER_REQUIRES_STDIN_OPEN && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS -i";
+		$DOCKER_CONTAINER_REQUIRES_PSEUDO_TTY && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS -t";
+		[ "$CONTAINER_NAME" ] &&  DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --name $CONTAINER_NAME";
+		#$DOCKER_CONTAINER_REQUIRES_DOCKER_SOCKET && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS -v /var/run/docker.sock:/var/run/docker.sock";
+		#DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS -v /custom/mount:/var/lib/postgisql/data";
+		$DOCKER_CONTAINER_REQUIRES_DOCKER_SOCKET && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock";
+		$DOCKER_CONTAINER_REQUIRES_SSH_CONFIG && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --mount type=bind,source=$HOME/.ssh/id_rsa,target=/home/build/.ssh/id_rsa";
+		$DOCKER_CONTAINER_REQUIRES_SSH_CONFIG && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --mount type=bind,source=$HOME/.ssh/known_hosts,target=/home/build/.ssh/known_hosts";
+		#$DOCKER_CONTAINER_REQUIRES_SSH_CONFIG && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --mount type=volume,source=$POSTGRES_DATA_VOLUME_NAME,target=/var/lib/postgisql/data";
+		#DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --publish 127.0.0.1:5432:5432";
+		DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --publish 0.0.0.0:5432:5432";
+	fi;
+
+	if $BUILD_IMAGE; then
+		if [ $BUILD_IMAGE -a -x $PROGDIR/build ]; then
+			execute $PROGDIR/build --verbose --debug;
+
+			if [ $? -ne 0 ]; then
+				error "Failed to build the Docker image";
+				return 1;
+			fi;
+		fi;
+	fi;
+
+	execute docker run	\
+		$DOCKER_RUN_ARGS	\
+		$(restart_opts)	\
+		$(docker_mount_opts)	\
+		$(docker_network_opts)	\
+		$(postgis_opts)	\
+		$DST_IMAGE $DST_IMAGE_ARGS;
+
+	if [ $? -ne 0 ]; then
+		error "Failed to start the Docker container $DST_IMAGE";
+
+		if $DOCKER_CONTAINER_CLEANUP; then
+			cleanup;
+
+			if [ $? -ne 0 ]; then
+				return 1;
+			fi;
+
+			return 1;
+		fi;
+	fi;
+
+	if [ ! $DOCKER_CONTAINER_DETACHED_MODE ]; then
+		if $DOCKER_CONTAINER_CLEANUP; then
+			cleanup;
+
+			if [ $? -ne 0 ]; then
+				return 1;
+			fi;
+		fi;
+	fi;
+
+	return 0;
+}
+
+	main "$@";
