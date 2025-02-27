@@ -142,7 +142,8 @@ main ()
 				export DOCKER_IMAGE_PREFIX="raymondstrose/";
 				export DOCKER_IMAGE_NAME="postgis-backup";
 				#export DOCKER_IMAGE_TAG="13.1"
-				export DOCKER_IMAGE_TAG="17.3"
+				#export DOCKER_IMAGE_TAG="17.3"
+				export DOCKER_IMAGE_TAG="17-3.5"
 				export CONTAINER_NAME="postgis-backup";
 				#export DOCKER_ARCH="amd64";
 				export DOCKER_CONTAINER_DETACHED_MODE=true;
