@@ -212,6 +212,7 @@ main ()
 		[ "$PGPASSWORD" ] || PGPASSWORD="default";
 		echo "--env PGPASSWORD=$PGPASSWORD";
 		[ "$PGDATABASE" ] && echo "--env PGDATABASE=$PGDATABASE";
+		[ "$DATABASE_HOST_PORT" ] && echo "--env PGPORT=$DATABASE_HOST_PORT";
 		return 0;
 	}
 
@@ -219,7 +220,7 @@ main ()
 	{
 		if [ "$POSTGRES_BACKUP_DATA_VOLUME_NAME" ]; then
 			#echo "--mount source=$POSTGRES_BACKUP_DATA_VOLUME_NAME,destination=/var/lib/postgisql/data";
-			echo "--mount type=volume,source=$POSTGRES_BACKUP_DATA_VOLUME_NAME,target=/home/backups/database/postgisql";
+			echo "--mount type=volume,source=$POSTGRES_BACKUP_DATA_VOLUME_NAME,target=/home/backups/database/postgresql";
 		fi;
 
 		return 0;
@@ -237,6 +238,8 @@ main ()
 		fi;
 
 		[ "$POSTGRES_PASSWORD" ] && echo "--env POSTGRES_PASSWORD=$POSTGRES_PASSWORD";
+
+		#echo "--publish 0.0.0.0:$DATABASE_HOST_PORT:5432";
 		return 0;
 	}
 
@@ -336,7 +339,6 @@ main ()
 		$DOCKER_CONTAINER_REQUIRES_DOCKER_SOCKET && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock";
 		$DOCKER_CONTAINER_REQUIRES_SSH_CONFIG && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --mount type=bind,source=$HOME/.ssh/id_rsa,target=/home/build/.ssh/id_rsa";
 		$DOCKER_CONTAINER_REQUIRES_SSH_CONFIG && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --mount type=bind,source=$HOME/.ssh/known_hosts,target=/home/build/.ssh/known_hosts";
-		#DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --publish 0.0.0.0:5432:5432";
 	fi;
 
 	if $BUILD_IMAGE; then
