@@ -1,0 +1,10 @@
+#! /usr/bin/env bash
+#
+# postgis/bin/restart
+#
+# raymondstrose@hotmail.com
+#
+#   Restart a Postgres Docker container.
+#
+
+bin/stop; bin/start $@;
