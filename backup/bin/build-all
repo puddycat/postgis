@@ -1,0 +1,2 @@
+#! /usr/bin/env bash
+for name in 9 10 11 12 13 14 15 16 17; do bin/build --base-image-tag=$name; done;

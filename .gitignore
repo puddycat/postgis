@@ -1,3 +1,4 @@
 *.log
 etc/*
 /backup/etc
+/restore/etc

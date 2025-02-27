@@ -1,0 +1,10 @@
+#! /usr/bin/env bash
+#
+# postgres/backup/bin/stop
+#
+# raymondstrose@hotmail.com
+#
+#   Stop a Postgres backup Docker container.
+#
+
+docker stop postgres-backup; docker rm postgres-backup;

@@ -1,10 +1,10 @@
 #! /usr/bin/env bash
 #
-# postgis/bin/start
+# postgres/backup/bin/start
 #
 # raymondstrose@hotmail.com
 #
-#   Start a Postgres Docker container.
+#   Start a Postgres backup Docker container.
 #
 
 append () { sed -e "s?\$?$@?"; }
@@ -47,12 +47,6 @@ create_docker_volumes ()
 
 		if [ "$DOCKER_VOLUME_INFO" ]; then
 			return 0;
-	#		execute docker volume rm $DOCKER_VOLUME_NAME;
-	#
-	#		if [ $? -ne 0 ]; then
-	#			error "Failed to remove Docker volume $DOCKER_VOLUME_NAME";
-	#			return 1;
-	#		fi;
 		fi;
 
 		execute docker volume create $DOCKER_VOLUME_NAME;
@@ -65,7 +59,7 @@ create_docker_volumes ()
 		return 0;
 	}
 
-	create_docker_volume $POSTGRES_DATA_VOLUME_NAME || return 1;
+	create_docker_volume $POSTGRES_BACKUP_DATA_VOLUME_NAME || return 1;
 
 	return 0;
 }
@@ -108,16 +102,18 @@ main ()
 	usage ()
 	{
 		cat <<-EOF >&2
-			$PROGNAME: usage: $PROGNAME [--help] [--debug] [--verbose] [--noop] [--config-dir {path}] [--image-name {name}] [--image-tag {tag}] [--build-image]
+			$PROGNAME: usage: $PROGNAME [--help] [--debug] [--verbose] [--noop] [--config-dir {path}] [--image-name {name}] [--image-tag {tag}] [--build-image] [--database-host-name {name}] [--database-host-port {name}]
 
-			--build-image               Build the image before starting the container (default: $BUILD_IMAGE)
-			--image-name {name}         Specify the Docker image tag (default: $DOCKER_IMAGE_NAME)
-			--image-tag {tag}           Specify the Docker image tag (default: $DOCKER_IMAGE_TAG)
-			--config-dir {path}         Specify the configuration directory (default: $CONFIG_DIR)
-			--noop                      Don't perform the operation, just report the actions that would be carried out.
-			--verbose                   Enable verbose mode.
-			--debug                     Enable debug mode.
-			--help                      Display this usage information.
+			--database-host-name {name}  Specify the database host name (default: $DATABASE_HOST_NAME)
+			--database-host-port {name}  Specify the database host port (default: $DATABASE_HOST_PORT)
+			--build-image                Build the image before starting the container (default: $BUILD_IMAGE)
+			--image-name {name}          Specify the Docker image tag (default: $DOCKER_IMAGE_NAME)
+			--image-tag {tag}            Specify the Docker image tag (default: $DOCKER_IMAGE_TAG)
+			--config-dir {path}          Specify the configuration directory (default: $CONFIG_DIR)
+			--noop                       Don't perform the operation, just report the actions that would be carried out.
+			--verbose                    Enable verbose mode.
+			--debug                      Enable debug mode.
+			--help                       Display this usage information.
 			EOF
 
 		return 0;
@@ -144,23 +140,29 @@ main ()
 				export MOUNT_HOST_DOCKER_SOCKET=false;
 
 				export DOCKER_IMAGE_PREFIX="raymondstrose/";
-				export DOCKER_IMAGE_NAME="postgis";
-				export DOCKER_IMAGE_TAG="17-3.5"
-				export CONTAINER_NAME="postgis";
+				export DOCKER_IMAGE_NAME="postgres-backup";
+				#export DOCKER_IMAGE_TAG="13.1"
+				export DOCKER_IMAGE_TAG="17.3"
+				export CONTAINER_NAME="postgres-backup";
 				#export DOCKER_ARCH="amd64";
 				export DOCKER_CONTAINER_DETACHED_MODE=true;
-				#export DOCKER_CONTAINER_REQUIRES_SSH_CONFIG=true;
-				#export DOCKER_CONTAINER_REQUIRES_DOCKER_SOCKET=true;
-				export DOCKER_CONTAINER_REQUIRES_DOCKER_SOCKET=false;
+				export DOCKER_CONTAINER_REQUIRES_SSH_CONFIG=true;
+				export DOCKER_CONTAINER_REQUIRES_DOCKER_SOCKET=true;
 				export DOCKER_CONTAINER_CLEANUP=true;
 				export DOCKER_CONTAINER_REQUIRES_STDIN_OPEN=true;
 				export DOCKER_CONTAINER_REQUIRES_PSEUDO_TTY=true;
 
-				export POSTGRES_DATA_VOLUME_NAME="postgis-data";
 				export POSTGRES_PASSWORD="";
 
-				#export DOCKER_NETWORK="postgis";
-				export DOCKER_NETWORK="bridge";
+				#export DOCKER_NETWORK="postgres";
+				#export DOCKER_NETWORK="bridge";
+				export DOCKER_NETWORK="host";
+
+				export DATABASE_HOST_NAME="localhost";
+				export DATABASE_HOST_PORT="5432";
+				export PGPASSWORD="";
+				export PGDATABASE="";
+				export POSTGRES_BACKUP_DATA_VOLUME_NAME="postgres-backup";
 				EOF
 		fi;
 
@@ -199,21 +201,30 @@ main ()
 	restart_opts ()
 	{
 		#echo "--rm";
-		echo "--restart=always";
+		#echo "--restart=always";
+		return 0;
+	}
+
+# See: https://www.postgresql.org/docs/17/libpq-envars.html
+	environment_opts ()
+	{
+		[ "$PGPASSWORD" ] || PGPASSWORD="default";
+		echo "--env PGPASSWORD=$PGPASSWORD";
+		[ "$PGDATABASE" ] && echo "--env PGDATABASE=$PGDATABASE";
 		return 0;
 	}
 
 	docker_mount_opts ()
 	{
-		if [ "$POSTGRES_DATA_VOLUME_NAME" ]; then
-			#echo "--mount source=$POSTGRES_DATA_VOLUME_NAME,destination=/var/lib/postgis/data";
-			echo "--mount type=volume,source=$POSTGRES_DATA_VOLUME_NAME,target=/var/lib/postgis/data";
+		if [ "$POSTGRES_BACKUP_DATA_VOLUME_NAME" ]; then
+			#echo "--mount source=$POSTGRES_BACKUP_DATA_VOLUME_NAME,destination=/var/lib/postgresql/data";
+			echo "--mount type=volume,source=$POSTGRES_BACKUP_DATA_VOLUME_NAME,target=/home/backups/database/postgresql";
 		fi;
 
 		return 0;
 	}
 
-	postgis_opts ()
+	postgres_opts ()
 	{
 	# Pass the Postgres POSTGRES_PASSWORD setting from the environment.
 	#
@@ -228,9 +239,9 @@ main ()
 		return 0;
 	}
 
-	export PROGNAME=`basename "$0"`;
-	export PROGDIR=`dirname "$0"`;
-	export INSTALL_DIR=`dirname "$PROGDIR"`;
+	export PROGNAME=$(basename "$0");
+	export PROGDIR=$(dirname "$0");
+	export INSTALL_DIR=$(dirname "$PROGDIR");
 	export CONFIG_DIR="$INSTALL_DIR/etc/$PROGNAME";
 	export LIB_DIR="$INSTALL_DIR/lib/$PROGNAME";
 	export WORK_DIR="$INSTALL_DIR/var/$PROGNAME";
@@ -253,6 +264,16 @@ main ()
 
 	while [ $# -gt 0 ]; do
 		case "$1" in
+		--database-host-name|--database-host-name=?*)
+			case "$1" in
+			--database-host-name)	DATABASE_HOST_NAME="$2"; shift;;
+			--database-host-name=?*)	DATABASE_HOST_NAME="${1--database-host-name=}";;
+			esac;;
+		--database-host-port|--database-host-port=?*)
+			case "$1" in
+			--database-host-port)	DATABASE_HOST_PORT="$2"; shift;;
+			--database-host-port=?*)	DATABASE_HOST_PORT="${1#--database-host-port=}";;
+			esac;;
 		--build-image)		BUILD_IMAGE=true;;
 		--image-tag|--image-tag=?*)
 			case "$1" in
@@ -305,18 +326,16 @@ main ()
 	if [ ! "$DOCKER_RUN_ARGS" ]; then
 		DOCKER_RUN_ARGS="";
 		$DOCKER_CONTAINER_DETACHED_MODE && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --detach";
-		$PRIVILEGED_MODE && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --privileged";
+		#$PRIVILEGED_MODE && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --privileged";
 		$DOCKER_CONTAINER_REQUIRES_STDIN_OPEN && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS -i";
 		$DOCKER_CONTAINER_REQUIRES_PSEUDO_TTY && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS -t";
 		[ "$CONTAINER_NAME" ] &&  DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --name $CONTAINER_NAME";
 		#$DOCKER_CONTAINER_REQUIRES_DOCKER_SOCKET && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS -v /var/run/docker.sock:/var/run/docker.sock";
-		#DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS -v /custom/mount:/var/lib/postgis/data";
+		#DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS -v /custom/mount:/var/lib/postgresql/data";
 		$DOCKER_CONTAINER_REQUIRES_DOCKER_SOCKET && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock";
 		$DOCKER_CONTAINER_REQUIRES_SSH_CONFIG && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --mount type=bind,source=$HOME/.ssh/id_rsa,target=/home/build/.ssh/id_rsa";
 		$DOCKER_CONTAINER_REQUIRES_SSH_CONFIG && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --mount type=bind,source=$HOME/.ssh/known_hosts,target=/home/build/.ssh/known_hosts";
-		#$DOCKER_CONTAINER_REQUIRES_SSH_CONFIG && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --mount type=volume,source=$POSTGRES_DATA_VOLUME_NAME,target=/var/lib/postgis/data";
-		#DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --publish 127.0.0.1:5432:5432";
-		DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --publish 0.0.0.0:5433:5432";
+		#DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --publish 0.0.0.0:5432:5432";
 	fi;
 
 	if $BUILD_IMAGE; then
@@ -335,7 +354,8 @@ main ()
 		$(restart_opts)	\
 		$(docker_mount_opts)	\
 		$(docker_network_opts)	\
-		$(postgis_opts)	\
+		$(environment_opts)	\
+		$(postgres_opts)	\
 		$DST_IMAGE $DST_IMAGE_ARGS;
 
 	if [ $? -ne 0 ]; then

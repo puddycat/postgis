@@ -1,0 +1,160 @@
+#! /usr/bin/env bash
+#
+# postgres/backup/bin/k8s-install
+#
+# raymondstrose@hotmail.com
+#
+#   Install the Postgres Backup within a Kubernetes cluster.
+#
+
+append () { sed -e "s?\$?$@?"; }
+prepend () { sed -e "s?^?$@?"; }
+indent () { { if [ $# -ne 0 ]; then echo -e "$@"; else cat; fi; } | prepend "    "; }
+error () { { if [ $# -ne 0 ]; then echo -e "$@"; else cat; fi; } | prepend "$PROGNAME: error: " >&2; }
+warning () { { if [ $# -ne 0 ]; then echo -e "$@"; else cat; fi; } | prepend "$PROGNAME: warning: " >&2; }
+notice () { { if [ $# -ne 0 ]; then echo -e "$@"; else cat; fi; } | prepend "$PROGNAME: notice: " >&2; }
+info () { { if [ $# -ne 0 ]; then echo -e "$@"; else cat; fi; } | prepend "$PROGNAME: info: " >&2; }
+verbose () { $VERBOSE_MODE && { { if [ $# -ne 0 ]; then echo -e "$@"; else cat; fi; } | prepend "$PROGNAME: verbose: " >&2; } }
+debug () { $DEBUG_MODE && { { if [ $# -ne 0 ]; then echo -e "$@"; else cat; fi; } | prepend "$PROGNAME: debug: " >&2; } }
+
+function execute ()
+{
+    declare -a params;
+
+    for param; do
+        if [[ -z "${param}" || "${param}" =~ [^A-Za-z0-9_@%+=:,./-] ]]; then
+            params+=("'${param//\'/\'\"\'\"\'}'");
+        else
+            params+=("${param}");
+        fi;
+    done;
+
+    debug "${params[*]}";
+    eval ${params[*]};
+}
+
+
+manifest_install ()
+{
+	#execute kubectl apply -f manifests/job/postgres-backup.yaml
+	execute kubectl apply -f manifests/cronjob/postgres-backup.yaml
+	return 1;
+}
+
+main ()
+{
+# Display usage information.
+#
+    usage ()
+    {
+        cat <<-EOF >&2
+			$PROGNAME: usage: $PROGNAME [--help] [--debug] [--verbose] [--noop] [--config-dir {path}] [--docker-host {spec}] [--docker-context {name}]
+
+            --docker-context {name}     Specify the Docker context for the build (default: $BUILD_DOCKER_CONTEXT)
+            --docker-host {spec}        Specify the Docker host as per https://docs.docker.com/engine/security/protect-access/ (default $DOCKER_HOST)
+			--config-dir {path}         Specify the configuration directory (default: $CONFIG_DIR)
+			--noop                      Don't perform the operation, just report the actions that would be carried out.
+			--verbose                   Enable verbose mode.
+			--debug                     Enable debug mode.
+			--help                      Display this usage information.
+			EOF
+
+        return 0;
+    }
+
+# Load configuration files.
+#
+	load_config ()
+	{
+		if [ "$CONFIG_DIR" ]; then
+			if [ -d "$CONFIG_DIR" ]; then
+
+			# Configure the process
+			#
+				notice "Loading configuration.";
+				for filename in $CONFIG_DIR/*; do
+					indent "$filename" | debug;
+					[ -f "$filename" ] && { source "$filename" || return 1; }
+				done;
+			fi;
+		fi;
+
+		return 0;
+	}
+
+	export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/go/bin";
+    export PROGNAME=`basename "$0"`;
+    export PROGDIR=`dirname "$0"`;
+    export INSTALL_DIR=`dirname "$PROGDIR"`;
+    export CONFIG_DIR="$INSTALL_DIR/etc/$PROGNAME";
+    export LIB_DIR="$INSTALL_DIR/lib/$PROGNAME";
+    export WORK_DIR="$INSTALL_DIR/var/$PROGNAME";
+    export DEBUG_MODE=false;
+    export VERBOSE_MODE=false;
+    export NOOP_MODE=false;
+    #export DOCKER_HOST="ssh://raymond@localhost";
+    #export DOCKER_HOST="";
+    export BUILD_DOCKER_CONTEXT="";
+	export IMAGE_PREFIX="raymondstrose/";
+	export IMAGE_NAME="postgres";
+	export IMAGE_TAG="13.1";
+
+# Load the default configuration files.
+	load_config || return $?;
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+        --docker-context|--docker-context=?*)
+            case "$1" in
+            --docker-context)		BUILD_DOCKER_CONTEXT="$2"; shift;;
+            --docker-context=?*)	BUILD_DOCKER_CONTEXT="${1#--docker-context=}";;
+            esac;;
+        --image-name|--image-name=?*)
+            case "$1" in
+            --image-name)		IMAGE_NAME="$2"; shift;;
+            --image-name=?*)	IMAGE_NAME="${1#--image-name=}";;
+            esac;;
+        --image-tag|--image-tag=?*)
+            case "$1" in
+            --image-tag)	IMAGE_TAG="$2"; shift;;
+            --image-tag=?*)	IMAGE_TAG="${1#--image-tag=}";;
+            esac;;
+        --docker-host|--docker-host=?*)
+            case "$1" in
+            --docker-host)		DOCKER_HOST="$2"; shift;;
+            --docker-host=?*)	DOCKER_HOST="${1#--docker-host=}";;
+            esac;;
+        --config-dir|--config-dir=?*)
+            case "$1" in
+            --config-dir)		CONFIG_DIR="$2"; shift;;
+            --config-dir=?*)	CONFIG_DIR="${1#--config-dir=}";;
+            esac;
+
+		# Load the specified configuration files.
+			load_config || return $?;;
+        --debug)	$DEBUG_MODE && set -x; DEBUG_MODE=true;;
+        --noop)		NOOP_MODE=true;;
+        --verbose)	VERBOSE_MODE=true;;
+        --help) usage; return 2;;
+        --) shift; break;;
+        -*)	error "unknown option \"$1\""; usage; return 1;;
+        *)	error "unrecognised command line argument \"$1\""; usage; return 1;;
+        esac;
+
+        shift;
+    done;
+
+	debug "$(env)";
+
+	manifest_install;
+
+	if [ $? -ne 0 ]; then
+		#error "failed to build $IMAGE_PREFIX$IMAGE_NAME:$IMAGE_TAG";
+		return 1;
+	fi;
+
+	return 0;
+}
+
+	main "$@";
+
