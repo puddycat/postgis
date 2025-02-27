@@ -1,6 +1,6 @@
 #! /usr/bin/env bash
 #
-# postgres/backup/bin/start
+# postgis/backup/bin/start
 #
 # raymondstrose@hotmail.com
 #
@@ -140,10 +140,10 @@ main ()
 				export MOUNT_HOST_DOCKER_SOCKET=false;
 
 				export DOCKER_IMAGE_PREFIX="raymondstrose/";
-				export DOCKER_IMAGE_NAME="postgres-backup";
+				export DOCKER_IMAGE_NAME="postgis-backup";
 				#export DOCKER_IMAGE_TAG="13.1"
 				export DOCKER_IMAGE_TAG="17.3"
-				export CONTAINER_NAME="postgres-backup";
+				export CONTAINER_NAME="postgis-backup";
 				#export DOCKER_ARCH="amd64";
 				export DOCKER_CONTAINER_DETACHED_MODE=true;
 				export DOCKER_CONTAINER_REQUIRES_SSH_CONFIG=true;
@@ -154,7 +154,7 @@ main ()
 
 				export POSTGRES_PASSWORD="";
 
-				#export DOCKER_NETWORK="postgres";
+				#export DOCKER_NETWORK="postgis";
 				#export DOCKER_NETWORK="bridge";
 				export DOCKER_NETWORK="host";
 
@@ -162,7 +162,7 @@ main ()
 				export DATABASE_HOST_PORT="5432";
 				export PGPASSWORD="";
 				export PGDATABASE="";
-				export POSTGRES_BACKUP_DATA_VOLUME_NAME="postgres-backup";
+				export POSTGRES_BACKUP_DATA_VOLUME_NAME="postgis-backup";
 				EOF
 		fi;
 
@@ -205,7 +205,7 @@ main ()
 		return 0;
 	}
 
-# See: https://www.postgresql.org/docs/17/libpq-envars.html
+# See: https://www.postgisql.org/docs/17/libpq-envars.html
 	environment_opts ()
 	{
 		[ "$PGPASSWORD" ] || PGPASSWORD="default";
@@ -217,14 +217,14 @@ main ()
 	docker_mount_opts ()
 	{
 		if [ "$POSTGRES_BACKUP_DATA_VOLUME_NAME" ]; then
-			#echo "--mount source=$POSTGRES_BACKUP_DATA_VOLUME_NAME,destination=/var/lib/postgresql/data";
-			echo "--mount type=volume,source=$POSTGRES_BACKUP_DATA_VOLUME_NAME,target=/home/backups/database/postgresql";
+			#echo "--mount source=$POSTGRES_BACKUP_DATA_VOLUME_NAME,destination=/var/lib/postgisql/data";
+			echo "--mount type=volume,source=$POSTGRES_BACKUP_DATA_VOLUME_NAME,target=/home/backups/database/postgisql";
 		fi;
 
 		return 0;
 	}
 
-	postgres_opts ()
+	postgis_opts ()
 	{
 	# Pass the Postgres POSTGRES_PASSWORD setting from the environment.
 	#
@@ -331,7 +331,7 @@ main ()
 		$DOCKER_CONTAINER_REQUIRES_PSEUDO_TTY && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS -t";
 		[ "$CONTAINER_NAME" ] &&  DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --name $CONTAINER_NAME";
 		#$DOCKER_CONTAINER_REQUIRES_DOCKER_SOCKET && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS -v /var/run/docker.sock:/var/run/docker.sock";
-		#DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS -v /custom/mount:/var/lib/postgresql/data";
+		#DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS -v /custom/mount:/var/lib/postgisql/data";
 		$DOCKER_CONTAINER_REQUIRES_DOCKER_SOCKET && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock";
 		$DOCKER_CONTAINER_REQUIRES_SSH_CONFIG && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --mount type=bind,source=$HOME/.ssh/id_rsa,target=/home/build/.ssh/id_rsa";
 		$DOCKER_CONTAINER_REQUIRES_SSH_CONFIG && DOCKER_RUN_ARGS="$DOCKER_RUN_ARGS --mount type=bind,source=$HOME/.ssh/known_hosts,target=/home/build/.ssh/known_hosts";
@@ -355,7 +355,7 @@ main ()
 		$(docker_mount_opts)	\
 		$(docker_network_opts)	\
 		$(environment_opts)	\
-		$(postgres_opts)	\
+		$(postgis_opts)	\
 		$DST_IMAGE $DST_IMAGE_ARGS;
 
 	if [ $? -ne 0 ]; then

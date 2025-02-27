@@ -1,6 +1,6 @@
 #! /usr/bin/env bash
 #
-# postgres/backup/bin/build
+# postgis/backup/bin/build
 #
 # raymondstrose@hotmail.com
 #
@@ -173,11 +173,11 @@ main ()
 				#export LOCAL_BUILDER_NAME="local-builder";
 				export MACOS_UNLOCK_KEYCHAIN=false;
 
-				export BASE_IMAGE="raymondstrose/postgres";
+				export BASE_IMAGE="raymondstrose/postgis";
 				export BASE_IMAGE_TAG="17.2";
 
 				export DOCKER_IMAGE_PREFIX="raymondstrose/";
-				export DOCKER_IMAGE_NAME="postgres-backup";
+				export DOCKER_IMAGE_NAME="postgis-backup";
 				export DOCKER_IMAGE_TAG="\$BASE_IMAGE_TAG";
 				EOF
 		fi;

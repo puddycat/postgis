@@ -1,6 +1,6 @@
 #! /usr/bin/env bash
 #
-# postgres/backup/bin/k8s-install
+# postgis/backup/bin/k8s-install
 #
 # raymondstrose@hotmail.com
 #
@@ -36,8 +36,8 @@ function execute ()
 
 manifest_install ()
 {
-	#execute kubectl apply -f manifests/job/postgres-backup.yaml
-	execute kubectl apply -f manifests/cronjob/postgres-backup.yaml
+	#execute kubectl apply -f manifests/job/postgis-backup.yaml
+	execute kubectl apply -f manifests/cronjob/postgis-backup.yaml
 	return 1;
 }
 
@@ -96,7 +96,7 @@ main ()
     #export DOCKER_HOST="";
     export BUILD_DOCKER_CONTEXT="";
 	export IMAGE_PREFIX="raymondstrose/";
-	export IMAGE_NAME="postgres";
+	export IMAGE_NAME="postgis";
 	export IMAGE_TAG="13.1";
 
 # Load the default configuration files.

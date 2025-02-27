@@ -1,6 +1,6 @@
 #! /usr/bin/env bash
 
 PROCESSES=$(docker ps -a);
-BACKUP_PROCESS=$(echo "$PROCESSES" | awk '{ if($NF == "postgres-backup") print $1; }');
+BACKUP_PROCESS=$(echo "$PROCESSES" | awk '{ if($NF == "postgis-backup") print $1; }');
 
 docker logs $BACKUP_PROCESS;
