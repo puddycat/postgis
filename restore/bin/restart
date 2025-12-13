@@ -1,0 +1,10 @@
+#! /usr/bin/env bash
+#
+# postgis/backup/bin/restart
+#
+# raymondstrose@hotmail.com
+#
+#   Stop and restart a Postgres backup Docker container.
+#
+
+bin/stop; bin/start $@;

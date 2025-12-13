@@ -1,0 +1,292 @@
+#! /usr/bin/env bash
+#
+# postgis/restore/bin/build
+#
+# raymondstrose@hotmail.com
+#
+#   Build a Postgres base image.
+#
+
+append () { sed -e "s?\$?$@?"; }
+prepend () { sed -e "s?^?$@?"; }
+indent () { { if [ $# -ne 0 ]; then echo -e "$@"; else cat; fi; } | prepend "    "; }
+error () { { if [ $# -ne 0 ]; then echo -e "$@"; else cat; fi; } | prepend "$PROGNAME: error: " >&2; }
+warning () { { if [ $# -ne 0 ]; then echo -e "$@"; else cat; fi; } | prepend "$PROGNAME: warning: " >&2; }
+notice () { { if [ $# -ne 0 ]; then echo -e "$@"; else cat; fi; } | prepend "$PROGNAME: notice: " >&2; }
+info () { { if [ $# -ne 0 ]; then echo -e "$@"; else cat; fi; } | prepend "$PROGNAME: info: " >&2; }
+verbose () { $VERBOSE_MODE && { { if [ $# -ne 0 ]; then echo -e "$@"; else cat; fi; } | prepend "$PROGNAME: verbose: " >&2; } }
+debug () { $DEBUG_MODE && { { if [ $# -ne 0 ]; then echo -e "$@"; else cat; fi; } | prepend "$PROGNAME: debug: " >&2; } }
+
+function execute ()
+{
+	declare -a params;
+
+	for param; do
+		if [[ -z "${param}" || "${param}" =~ [^A-Za-z0-9_@%+=:,./-] ]]; then
+			params+=("'${param//\'/\'\"\'\"\'}'");
+		else
+			params+=("${param}");
+		fi;
+	done;
+
+	debug "${params[*]}";
+	eval ${params[*]};
+}
+
+build_docker_image ()
+{
+	set_builder ()
+	{
+		[ "$LOCAL_BUILDER_NAME" ] || return 0;
+
+		if docker buildx ls | grep "^$LOCAL_BUILDER_NAME" >/dev/null; then
+			execute docker buildx use $LOCAL_BUILDER_NAME;
+
+			if [ $? -ne 0 ]; then
+				error "Failed to switch to $LOCAL_BUILDER_NAME";
+				return 1;
+			fi;
+		else
+			execute docker buildx create --name $LOCAL_BUILDER_NAME --use;
+
+			if [ $? -ne 0 ]; then
+				error "Failed to create $LOCAL_BUILDER_NAME";
+				return 1;
+			fi;
+		fi;
+
+		return 0;
+	}
+
+	TARGET_VERSION="${DOCKER_IMAGE_TAG}";
+	[ ! "$DST_IMAGE" ] && DST_IMAGE="$DOCKER_IMAGE_PREFIX$DOCKER_IMAGE_NAME:$TARGET_VERSION";
+	[ ! "$BASE_IMAGE" ] && BASE_IMAGE="debian";
+	[ ! "$BASE_IMAGE_TAG" ] && BASE_IMAGE_TAG="$TERRAFORM_RELEASE";
+	[ ! "$DOCKERFILE" ] && DOCKERFILE="$INSTALL_DIR/Dockerfile";
+
+# Docker buildx support.
+# When enabled, images for multiple platforms are built.
+	if $BUILDX_ENABLE; then
+		set_builder;
+
+		execute docker buildx build	\
+			--platform $BUILDX_PLATFORMS	\
+			--build-arg BASE_IMAGE="$BASE_IMAGE" \
+			--build-arg BASE_IMAGE_TAG="$BASE_IMAGE_TAG" \
+			-t "$DST_IMAGE"	\
+			-f "$DOCKERFILE"	\
+			--push	\
+			"$INSTALL_DIR";
+
+		if [ $? -ne 0 ]; then
+			error "Failed to build $DST_IMAGE";
+			return 1;
+		fi;
+	else
+		execute docker build	\
+			--platform $BUILDX_PLATFORMS	\
+			--build-arg BASE_IMAGE="$BASE_IMAGE" \
+			--build-arg BASE_IMAGE_TAG="$BASE_IMAGE_TAG" \
+			-t "$DST_IMAGE"	\
+			-f "$DOCKERFILE"	\
+			--push	\
+			"$INSTALL_DIR";
+
+		if [ $? -ne 0 ]; then
+			error "Failed to build $DST_IMAGE";
+			return 1;
+		fi;
+
+#		execute docker push $DST_IMAGE;
+#
+#		if [ $? -ne 0 ]; then
+#			error "Failed to push $DST_IMAGE";
+#			return 1;
+#		fi;
+	fi;
+
+	execute docker scout quickview $DST_IMAGE;
+	execute docker scout cves $DST_IMAGE;
+	execute docker scout recommendations $DST_IMAGE;
+
+	return 0;
+}
+
+main ()
+{
+# Display usage information.
+#
+	usage ()
+	{
+		cat <<-EOF >&2
+			$PROGNAME: usage: $PROGNAME [--help] [--debug] [--verbose] [--noop] [--config-dir {path}] [--base-image {name}] [--base-image-tag {tag}] [--image-name {name}] [--image-tag {tag}]
+
+			--base-image {name}         Specify the base image name (default: $BASE_IMAGE)
+			--base-image-tag {tag}      Specify the base image tag (default: $BASE_IMAGE_TAG)
+			--image-name {name}         Specify the Docker image name (default: $DOCKER_IMAGE_NAME)
+			--image-tag {tag}           Specify the Docker image tag (default: $DOCKER_IMAGE_TAG)
+			--docker-context {name}     Specify the Docker context for the build (default: $BUILD_DOCKER_CONTEXT)
+			--docker-host {spec}        Specify the Docker host as per https://docs.docker.com/engine/security/protect-access/ (default $DOCKER_HOST)
+			--config-dir {path}         Specify the configuration directory (default: $CONFIG_DIR)
+			--noop                      Don't perform the operation, just report the actions that would be carried out.
+			--verbose                   Enable verbose mode.
+			--debug                     Enable debug mode.
+			--help                      Display this usage information.
+			EOF
+
+		return 0;
+	}
+
+# Create the initial configuration files.
+#
+# Any files already in place should not be overwritten.
+#
+	initialise_configuration ()
+	{
+		[ -d $CONFIG_DIR ] || mkdir -p $CONFIG_DIR;
+
+		export DOCKER_ARCH="amd64";
+
+		case $(uname -m) in
+		x86_64) export DOCKER_ARCH="amd64";;
+		arm64) export DOCKER_ARCH="arm64";;
+		esac;
+
+		if [ ! -f $CONFIG_DIR/settings ]; then
+			cat <<-EOF >$CONFIG_DIR/settings
+				export DEBUG_MODE=false;
+				export VERBOSE_MODE=false;
+				export NOOP_MODE=false;
+
+				export MOUNT_HOST_DOCKER=false;
+				export MOUNT_HOST_DOCKER_SOCKET=false;
+
+				export DOCKER_ARCH="$DOCKER_ARCH";
+				#export DOCKER_HOST="ssh://raymond@localhost";
+				#export DOCKER_HOST="";
+				export BUILD_DOCKER_CONTEXT="";
+				export BUILDX_ENABLE=true;
+				#export BUILDX_PLATFORMS="linux/amd64,linux/arm64,linux/arm/v7";
+				#export BUILDX_PLATFORMS="linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v8";
+				export BUILDX_PLATFORMS="linux/amd64,linux/arm64";
+				#export LOCAL_BUILDER_NAME="orbstack";
+				#export LOCAL_BUILDER_NAME="local-builder";
+				export MACOS_UNLOCK_KEYCHAIN=false;
+
+				export BASE_IMAGE="raymondstrose/postgis";
+				export BASE_IMAGE_TAG="17.2";
+
+				export DOCKER_IMAGE_PREFIX="raymondstrose/";
+				export DOCKER_IMAGE_NAME="postgis-restore";
+				export DOCKER_IMAGE_TAG="\$BASE_IMAGE_TAG";
+				EOF
+		fi;
+
+		return 0;
+	}
+
+
+# Load configuration files.
+#
+	load_config ()
+	{
+		if [ "$CONFIG_DIR" ]; then
+			if [ -d "$CONFIG_DIR" ]; then
+
+			# Configure the process
+			#
+				notice "Loading configuration.";
+				for filename in $CONFIG_DIR/*; do
+					indent "$filename" | debug;
+					[ -f "$filename" ] && { source "$filename" || return 1; }
+				done;
+			fi;
+		fi;
+
+		return 0;
+	}
+
+	export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/go/bin";
+	export PROGNAME=$(basename "$0");
+	export PROGDIR=$(dirname "$0");
+	export INSTALL_DIR=$(dirname "$PROGDIR");
+	export CONFIG_DIR="$INSTALL_DIR/etc/$PROGNAME";
+	export LIB_DIR="$INSTALL_DIR/lib/$PROGNAME";
+	export WORK_DIR="$INSTALL_DIR/var/$PROGNAME";
+
+# Create the initial configuration files.
+	initialise_configuration || return $?;
+
+# Load the default configuration files.
+	load_config || return $?;
+
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--base-image-tag|--base-image-tag=?*)
+			case "$1" in
+			--base-image-tag)	BASE_IMAGE_TAG="$2"; shift;;
+			--base-image-tag=?*)	BASE_IMAGE_TAG="${1#--base-image-tag=}";;
+			esac;
+
+			DOCKER_IMAGE_TAG="$BASE_IMAGE_TAG";;
+		--base-image|--base-image=?*)
+			case "$1" in
+			--base-image)		BASE_IMAGE="$2"; shift;;
+			--base-image=?*)	BASE_IMAGE="${1#--base-image=}";;
+			esac;;
+		--docker-context|--docker-context=?*)
+			case "$1" in
+			--docker-context)		BUILD_DOCKER_CONTEXT="$2"; shift;;
+			--docker-context=?*)	BUILD_DOCKER_CONTEXT="${1#--docker-context=}";;
+			esac;;
+		--image-name|--image-name=?*)
+			case "$1" in
+			--image-name)		DOCKER_IMAGE_NAME="$2"; shift;;
+			--image-name=?*)	DOCKER_IMAGE_NAME="${1#--image-name=}";;
+			esac;;
+		--image-tag|--image-tag=?*)
+			case "$1" in
+			--image-tag)	DOCKER_IMAGE_TAG="$2"; shift;;
+			--image-tag=?*)	DOCKER_IMAGE_TAG="${1#--image-tag=}";;
+			esac;;
+		--docker-host|--docker-host=?*)
+			case "$1" in
+			--docker-host)		DOCKER_HOST="$2"; shift;;
+			--docker-host=?*)	DOCKER_HOST="${1#--docker-host=}";;
+			esac;;
+		--config-dir|--config-dir=?*)
+			case "$1" in
+			--config-dir)		CONFIG_DIR="$2"; shift;;
+			--config-dir=?*)	CONFIG_DIR="${1#--config-dir=}";;
+			esac;
+
+		# Create the initial configuration files.
+			initialise_configuration || return $?;
+
+		# Load the specified configuration files.
+			load_config || return $?;;
+		--debug)	$DEBUG_MODE && set -x; DEBUG_MODE=true;;
+		--noop)		NOOP_MODE=true;;
+		--verbose)	VERBOSE_MODE=true;;
+		--help) usage; return 2;;
+		--) shift; break;;
+		-*)	error "unknown option \"$1\""; usage; return 1;;
+		*)	error "unrecognised command line argument \"$1\""; usage; return 1;;
+		esac;
+
+		shift;
+	done;
+
+	debug "$(env)";
+
+	execute build_docker_image;
+
+	if [ $? -ne 0 ]; then
+		error "Failed to build reading files Docker image";
+		return 1;
+	fi;
+
+	return 0;
+}
+
+	main "$@";
